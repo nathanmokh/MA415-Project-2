@@ -1,0 +1,222 @@
+---
+title: "Chemical Treatments on Vegetables"
+author: "Han Nguyen, Carlos Echeverri, Nathan Mokhtarzadeh"
+date: "March 18, 2018"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r include=FALSE, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(readxl)
+library(stringr)
+
+# read in vegetable data
+veg.1 <- read_xlsx("veg1.xlsx")
+
+# created data table of restricted use chemicals (toxicity measurements)
+# toxicity measurements taken from EPA, average toxicity given to rat
+toxicity <- read_xlsx("toxicitiesAndChemicals.xlsx")
+
+# get column names of vegetable data
+cnames.1 <- colnames(veg.1)
+
+n_distinct(veg.1[,1])
+
+n_distinct(veg.1[,2])
+
+unique(veg.1[,2])
+
+## now get the count for each column
+
+c <- apply(veg.1, 2, n_distinct)
+c
+
+c[c>1]
+
+d <- names(c[c==1])
+d
+
+e <- names(c[c>1])
+e
+
+# columns with more than one unique value 
+veg.2 <- select(veg.1, e)
+
+cnames.2 <- colnames(veg.2)
+cnames.2
+
+apply(veg.2, 2, n_distinct)
+
+# rename veg.2 columns
+veg.3 <- dplyr::rename(veg.2, 
+                       Geo = `Geo Level`, 
+                       State = `State ANSI`,
+                       Data = `Data Item`,
+                       Category = `Domain Category`)
+
+cnames.3 <- colnames(veg.3)
+cnames.3
+
+veg.3
+
+# look into what each column consists of
+unique(veg.3[,"Commodity"])
+
+unique(veg.3[,"Data"]) %>% print(n=60)
+
+unique(veg.3[,"Domain"])
+
+unique(veg.3[,"Category"])
+
+unique(veg.3[,"Value"])
+```
+
+## Introduction
+### In this project, we will...
+
+* explore data that was collected to gain insight about chemical treatments applied to food crops as fertilizer, insecticides, etc.
+* look at the following parameters from USDA QuickStats:
+    + Parameter: Survey
+    + Sector: Environmental
+    + Group: Vegetables
+    + Commodity: Vegetables Totals, Vegetables Other, Broccoli, Brussels Sprouts, Cauliflower
+* evaluate toxicity measurements of restricted use chemicals on vegetables
+
+## Tidy
+* The data was not tidy at first, so we used tidyverse(tidyr and dplyr) to make the data easier to manipulate. 
+* We separated each column by sector, so that one column doesn't contain multiple pieces of information.
+* We also created a table of toxicity measurements (found by taking the average amount that is toxic to a rat on EPA website) and augmented it (left_join) to our original data set
+```{r, warning=FALSE, message=FALSE}
+Data <- veg.3 %>% 
+  separate(Domain, into = c("Chemical", "Type"), sep = ", ") %>% 
+  separate(Category, into = c("Delete", "Category"), sep = ": ") %>% 
+  select(-Delete) %>%
+  
+  # change "not specified" to NA 
+  mutate(Category = ifelse(is.na(Category), "(NOT SPECIFIED)", Category)) %>% 
+  
+  # mutate to only have multi-state vs. state
+  select(-c(State,Region)) %>% 
+  mutate(Geo = ifelse(Geo=="STATE", "STATE", "MULTI-STATE")) %>% 
+
+ # get rid of repeating commodity in category
+  mutate(Category = stringr::str_replace_all(Category, "[()]", "")) %>% 
+  mutate(Data = substr(Data, str_length(Commodity) + 3, str_length(Data))) %>% 
+
+  mutate(Type = ifelse(Chemical == "FERTILIZER", Chemical, Type)) %>% 
+  mutate(Chemical = ifelse(Chemical=="FERTILIZER", NA, Chemical)) %>% 
+  
+  # augment evaluation of chemical treatments (toxicity measurements) applied to vegetables
+  left_join(toxicity, by = "Category") %>% 
+  separate(Category, into = c("Category", "Code"), sep = "=") %>% 
+  mutate(Code = as.numeric(Code)) %>% 
+  mutate(Category = str_trim(Category)) %>% 
+  
+  separate(Data, into = c("Data", "Measurement"), sep = ", MEASURED IN ") %>% 
+  mutate(Measurement = ifelse(is.na(Measurement), "ACRES POLLINATED, PAID BASIS", Measurement)) %>% 
+  mutate(Data = str_replace(Data, " - ACRES POLLINATED, PAID BASIS", ""))
+```
+
+## Toxicity Levels
+To find toxicity of restricted use chemicals, we went on the EPA website, and took the amount that would be toxic for a rat, and averaged out these values. We made a barplot to show the restricted use chemicals vs. its measurements. 
+```{r}
+# create barplot for restricted use chemicals vs toxicity measurement
+titles <- as.vector(toxicity[[1]])
+values <- as.vector(toxicity[[2]])
+op <- par(mar=c(11,4,4,2))
+barplot(values, main='Chemicals and their Toxicity Levels', names.arg = titles, las = 2, col = 'skyblue', ylab = 'Toxicity Level (mg/kg)', cex.names = 0.7)
+```
+
+----
+
+* It is shown that Pronamide has the highest toxicity measure, along with Chlorantranilipole.
+* We assume that if a vegetable uses a lot of these chemicals, it would be more harmful for someone to consume.
+* Some of the chemicals were missing toxicity measurements: Beta-Cyfluthrin, Emamectin Benzoate, Dichloropropene, and Zeta-Cypermethrin
+
+## Restricted vs Non-Restricted Use Chemicals in Vegetables
+We created pie charts for each commodity, to represent the percentage of restricted use chemicals for that vegetable vs the percentage of non-restricted use chemicals. Below, we give an example of Broccoli.
+
+```{r}
+broccoli.count <- filter(Data, Commodity == "BROCCOLI")
+bcount <- nrow(broccoli.count)
+
+# get count for restricted chemical use
+rsc.count <- filter(Data, Commodity == "BROCCOLI", Chemical == "RESTRICTED USE CHEMICAL")
+rsc <- nrow(rsc.count)
+
+slices <- c(rsc, bcount - rsc) 
+lbls <- c("RESTRICTED USE CHEMICALS", "NONRESTRICTED USE CHEMICALS")
+pct <- round(slices/bcount*100)
+lbls <- paste(lbls, pct) # add percents to labels 
+lbls <- paste(lbls,"%",sep="") # add % to labels 
+pie(slices,labels = lbls, col=rainbow(length(lbls)),
+    main="Broccoli", cex = 0.7)
+```
+
+----
+
+* 6% of broccoli used restricted use chemicals, 5% for cauliflower, but 0% for brussel sprouts and other vegetables
+* This shows us that it may be more harmful to consume broccoli and cauliflower than brussel sprouts
+
+## Type of Chemicals in Vegetables
+We also created pie charts to see the type of chemicals used for each vegetable. The different types would be either fungicide, herbicide, insecticide, 'other', avoidance, monitoring, prevention, suppresion, or fertilizer, and some with NA. Below, we give an example of broccoli.
+
+```{r}
+# get count of number of broccoli
+broccoli.count <- filter(Data, Commodity == "BROCCOLI")
+bcount <- nrow(broccoli.count)
+
+# get counts of different types
+rsc.count <- filter(Data, Commodity == "BROCCOLI", Type == "FUNGICIDE")
+rsc <- nrow(rsc.count)
+
+herbicide <- filter(Data, Commodity == "BROCCOLI", Type == "HERBICIDE")
+h <- nrow(herbicide)
+
+insecticide <- filter(Data, Commodity == "BROCCOLI", Type == "INSECTICIDE")
+i <- nrow(insecticide)
+
+other <- filter(Data, Commodity == "BROCCOLI", Type == "OTHER")
+o <- nrow(other)
+
+avoidance <- filter(Data, Commodity == "BROCCOLI", Type == "AVOIDANCE")
+a <- nrow(avoidance)
+
+monitoring <- filter(Data, Commodity == "BROCCOLI", Type == "MONITORING")
+m <- nrow(monitoring)
+
+prevention <- filter(Data, Commodity == "BROCCOLI", Type == "PREVENTION")
+p <- nrow(prevention)
+
+suppression <- filter(Data, Commodity == "BROCCOLI", Type == "SUPPRESSION")
+s <- nrow(suppression)
+
+fertilizer <- filter(Data, Commodity == "BROCCOLI", Type == "FERTILIZER")
+f <- nrow(fertilizer)
+
+# create slices for different types
+slices <- c(rsc, h, i, o, a, m, p, s, f, bcount - (rsc + h + i + o + a + m + p + s + f)) 
+lbls <- c("FUNGICIDE", "HERBICIDE", "INSECTICIDE", "OTHER", "AVOIDANCE",
+          "MONITORING", "PREVENTION", "SUPPRESSION", "FERTILIZER", "NA")
+pct <- round(slices/bcount*100)
+lbls <- paste(ifelse(pct>1, lbls, ""), ifelse(pct>1, pct, "")) # add percents to labels 
+lbls <- paste(lbls, ifelse(pct>1, "%", ""),sep="") # add % to labels 
+pie(slices,labels = lbls, col=rainbow(length(lbls)),
+    main="Broccoli", radius=1, cex=0.7)
+```
+
+----
+
+* Broccoli, cauliflower, and brussel sprouts use mainly insecticides
+* Broccoli and cauliflower also mainly use herbicide, fungicide, and fertilizer, whereas brussel sprouts only also use fungicide
+* These discrepancies may explain why broccoli and cauliflower have higher toxicity level and may be more harmful
+
+## Conclusion
+* Pronamide and Chlorantranilipole have the highest toxicity measurements
+* Broccoli and Cauliflower have more restricted use chemicals
+* Although not certain, it can be inferred that one who consumes more broccoli and cauliflower may be more at risk than one who consumes brussel sprouts
+* It may be inferred that herbicide and fertilizer affects these toxicity measurements, seeing that only broccoli and cauliflower use them, unlike brussel sprouts

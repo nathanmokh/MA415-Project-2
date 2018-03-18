@@ -1,0 +1,306 @@
+---
+title: "Buoy 46035"
+author: "Han Nguyen, Carlos Echeverri, Nathan Mokhtarzadeh"
+date: "March 18, 2018"
+output: ioslides_presentation
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+```
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(stringr)
+
+
+# Read in data from website
+
+url1 <- "http://www.ndbc.noaa.gov/view_text_file.php?filename=46035h"
+url2 <- ".txt.gz&dir=data/historical/stdmet/"
+
+years <- c(1987:2017)[-27] #2013 is not available
+
+urls <- str_c(url1, years, url2, sep = "")
+
+filenames <- str_c("mr", years, sep = "")
+
+
+# separates file into each year
+
+N <- length(urls)
+
+for (i in 1:N){
+  suppressMessages(
+    assign(filenames[i], read_table(urls[i], col_names = TRUE))
+  )
+  
+  file <- get(filenames[i])
+  
+  colnames(file)[1] <-"YYYY"
+  
+  if (i < 19) {
+    file <- file %>% mutate(mm = "00")
+  }
+  
+  file <- file %>% select(YYYY, MM, DD, hh, mm, ATMP, WTMP)
+  
+  if (i >= 21) {
+    file <- file[-1,]
+  }
+  
+  # put '19' in front of 2 digit years
+  if (i >= 27) {
+    file[1] <- i + 1987
+  }
+  else{
+    file[1] <- i + 1986
+      }
+  
+
+  
+  if(i == 1){
+    MR <- file
+  }
+  
+  else{
+    MR <- rbind.data.frame(MR, file)
+  }
+  
+  
+  
+}
+
+```
+## Introduction
+###  In this project, we will...
+
+* explore the data of Buoy 46035 at 57.026 N 177.738 W in the NOAA National Data Buoy Center
+* look into daily Air Temperature and Sea Temperature readings at noon for the past 30 years (from 1987 to 2017).
+* look at time series graphs
+* test the difference between temperatures from 1987 to 2017
+
+## Tidy
+The data was not tidy at first, so we used the code below to make the data easier to manipulate. It is also worth noting that data for 2013 was missing. 
+
+```{r echo=TRUE, warning=FALSE, message=FALSE}
+
+Data <- MR %>%
+  filter((hh == "11" & mm == "50") | (hh == "12" & mm == "00")) %>%
+  mutate(ATMP = as.numeric(ATMP),
+         WTMP = as.numeric(WTMP),
+         MM = as.integer(MM),
+         DD = as.integer(DD)) %>%
+  mutate(ATMP = ifelse(ATMP > 90, NA, ATMP)) %>%
+  mutate(WTMP = ifelse(WTMP > 90, NA, WTMP)) %>%
+  unite("Date", c("YYYY", "MM", "DD"), sep = "-") %>%
+  mutate(Date = as.Date(Date))
+
+```
+
+## Time Series for Air Temperature
+```{r}
+# Time Series Using tidyverse (Air)
+Data %>% ggplot(aes(Date, ATMP)) +
+  geom_line(na.rm = TRUE, col = "red") +
+  labs(title = "Air Temperature at the Bering Sea",
+       subtitle = "Data obtained from the National Data Buoy Center",
+       y = "Temperature (Celcius)",
+       x = "Year")
+```
+
+## Time Series for Sea Temperature
+```{r}
+# Time Series Using tidyverse (Sea)
+Data %>% ggplot(aes(Date, WTMP)) +
+  geom_line(na.rm = TRUE, col = "blue") +
+  labs(title = "Sea Temperature at the Bering Sea",
+       subtitle = "Data obtained from the National Data Buoy Center",
+       y = "Temperature (Celcius)",
+       x = "Year")
+```
+
+## Time Series for Both Temperatures
+```{r, warning=FALSE, message=FALSE}
+# Time Series Using tidyverse (Both)
+df <- data.frame(Data$Date, Data$ATMP, Data$WTMP)
+ggplot(df, aes(Data$Date, y = value, color = variable)) + 
+  geom_line(aes(y = Data$ATMP, col = "Air Temperature")) + 
+  geom_line(aes(y = Data$WTMP, col = "Sea Temperature")) +
+  labs(title = "Temperature at the Bering Sea",
+       subtitle = "Data obtained from the National Data Buoy Center",
+       y = "Temperature (Celcius)",
+       x = "Year")
+```
+
+## Average Temperature per Month
+* We created boxplots to show the average Air and Sea Temperature per month in a year. 
+* In the following plots, we give an example of the year 1988. 
+* It can generally be said that temperatures for both air and sea were higher in the second half of the year (June-December) than in the first half of the year, for all years.
+
+----
+
+### Average Air Temperature per Month in 1988
+```{r}
+mymonths <- c("Jan","Feb","Mar", "Apr","May","Jun", "Jul","Aug","Sep", "Oct","Nov","Dec")
+
+by_year <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 1988) 
+
+ggplot(data = by_year, mapping = aes(x = MM, y = ATMP)) + 
+  geom_boxplot(na.rm = TRUE) +
+  coord_flip() +
+  labs(title = "Air Temperature by Month",
+       subtitle = "Data obtained from the National Data Buoy Center",
+       y = "Temperature (Celcius)",
+       x = "Month")
+```
+
+----
+
+### Average Sea Temperature per Month in 1988
+```{r}
+mymonths <- c("Jan","Feb","Mar", "Apr","May","Jun", "Jul","Aug","Sep", "Oct","Nov","Dec")
+
+by_year <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 1988) 
+
+ggplot(data = by_year, mapping = aes(x = MM, y = WTMP)) + 
+  geom_boxplot(na.rm = TRUE) +
+  coord_flip() +
+  labs(title = "Sea Temperature by Month",
+       subtitle = "Data obtained from the National Data Buoy Center",
+       y = "Temperature (Celcius)",
+       x = "Month")
+```
+
+## Air and Sea Temperature Correlation
+To test if Air and Sea Temperature are related to each other, we used a correlation test.
+```{r}
+ATPM <- Data$ATMP
+WTMP <- Data$WTMP
+cor.test(c(ATPM,NA),c(WTMP,NA),use = "complete.obs")
+```
+
+----
+
+* The output returns a correlation coefficient of 0.8754881. 
+* This value is close to 1, which means that there seems to be a positive relationship between air and sea temperature. 
+* The correlation test also calculates a p-value. If the p-value is less than 0.05, then the correlation coefficient is, in fact, significant. In this test, we got a p-value < 2.2e-16, which is also less than 0.05. 
+* So, the correlation coefficient of 0.8754881 is significant, confirming the positive relationship between air and sea temperature.
+
+## Missing Data
+The data that is missing has been converted to NA in the tables. When using this data to do statistical testing, there will not be an output, as NA cannot be calculated. So we omit the NA data in calculations, and proceed with the statistical testings.
+
+## Mean Temperature Change (at noon) from 1987 to 2017
+### Air Temperature
+To test if mean air temperature changed over the past 30 years, we used a t-test. 
+
+Null hypothesis : mean air temperature in 1987 did not significantly change in the 30 years, so their difference would equal 0. 
+
+Alternative hypothesis : mean difference is not equal to 0, meaning there is a significant change.
+
+----
+
+```{r}
+x <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 1987)
+y <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 2017)
+
+x <- x$ATMP
+y <- y$ATMP
+
+t.test(x, y, na.rm=TRUE)
+```
+
+----
+
+* The mean air temperature in 1987 was 1.775090 and 4.645179 in 2017.
+* The t-score is -9.3637, with a p-value < 2.2e-16, which is less than 0.05, so there is a significant change in air temperature in the last 30 years.
+* The confidence interval is (-3.472024, -2.268153). 0 is not included in this interval, meaning the difference in means is not equal to 0, rejecting the null hypothesis, and confirming that there is a significant mean air temperature change in the past 30 years.
+
+----
+
+### Sea Temperature
+To test if mean sea temperature changed over the past 30 years, we used a t-test. 
+
+Null hypothesis : mean sea temperature in 1987 did not significantly change in the 30 years, so their difference would equal 0. 
+
+Alternative hypothesis : mean difference is not equal to 0, meaning there is a significant change.
+
+----
+
+```{r}
+x <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 1987)
+y <- Data %>% separate(Date, into = c("YYYY", "MM", "DD"), sep = "-") %>% 
+  filter(YYYY == 2017)
+
+x <- x$WTMP
+y <- y$WTMP
+
+t.test(x, y, na.rm=TRUE)
+```
+
+----
+
+* The mean sea temperature in 1987 was 4.347482 and 6.141525 in 2017.
+* The t-score is -8.7462, with a p-value < 2.2e-16, which is less than 0.05, so there is a significant change in sea temperature in the last 30 years.
+* The confidence interval is (-2.196854, -1.391232). 0 is not included in this interval, meaning the difference in means is not equal to 0, rejecting the null hypothesis, and confirming that there is a significant mean sea temperature change in the past 30 years.
+
+## Mean Temperature Change (at all times) from 1987 to 2017
+### Air Temperature
+To see if our sampling at only noon observations affected our evaluation of change in air temperature as a whole, we decided to take a t-test for the whole entire dataset, which includes all observations during the day, not just noon time. Our null and alternative hypotheses are the same as the previous hypotheses. 
+
+----
+
+```{r}
+mr1987 <- mr1987 %>% mutate(ATMP = ifelse(ATMP > 90, NA, ATMP)) %>% 
+  mutate(ATMP = as.numeric(ATMP))
+mr2017 <- mr2017 %>% mutate(ATMP = ifelse(ATMP > 90, NA, ATMP)) %>% 
+  mutate(ATMP = as.numeric(ATMP))
+
+x <- mr1987$ATMP
+y <- mr2017$ATMP
+
+t.test(x, y, na.rm=TRUE)
+```
+
+----
+
+* The mean air temperature in 1987 was 1.789408 and 4.714333 in 2017, which isn't too different from the means for only noon observations. .
+* The t-score is -46.776, with a p-value < 2.2e-16, which is less than 0.05, so there is a significant change in air temperature in the last 30 years.
+* The confidence interval is (-3.047494, -2.802358). 0 is not included in this interval, meaning the difference in means is not equal to 0, rejecting the null hypothesis, and confirming that there is a significant mean air temperature change in the past 30 years.
+* So, the sampling of only noon observations did not affect our evaluation of air temperature change in the last 30 years. In both cases, it is seen that there is a significant change. 
+
+----
+
+### Sea Temperature
+To see if our sampling at only noon observations affected our evaluation of change in sea temperature as a whole, we decided to take a t-test for the whole entire dataset, which includes all observations during the day, not just noon time. Our null and alternative hypotheses are the same as the previous hypotheses.
+
+----
+
+```{r}
+mr1987 <- mr1987 %>% mutate(WTMP = ifelse(WTMP > 90, NA, WTMP)) %>% 
+  mutate(WTMP = as.numeric(WTMP))
+mr2017 <- mr2017 %>% mutate(WTMP = ifelse(WTMP > 90, NA, WTMP)) %>% 
+  mutate(WTMP = as.numeric(WTMP))
+
+x <- mr1987$WTMP
+y <- mr2017$WTMP
+
+t.test(x, y, na.rm=TRUE)
+```
+
+----
+
+* The mean sea temperature in 1987 was 4.354448 and 6.156853 in 2017, which isn't too different from the means for only noon observations. .
+* The t-score is -43.006, with a p-value < 2.2e-16, which is less than 0.05, so there is a significant change in sea temperature in the last 30 years.
+* The confidence interval is (-1.884556, -1.720256). 0 is not included in this interval, meaning the difference in means is not equal to 0, rejecting the null hypothesis, and confirming that there is a significant mean sea temperature change in the past 30 years.
+* So, the sampling of only noon observations did not affect our evaluation of sea temperature change in the last 30 years. In both cases, it is seen that there is a significant change.
+
+## Conclusion
+* Air temperature and Sea temperature at Buoy 46035 are significantly positively related
+* Missing data is converted to NA and not included in statistical testing
+* Air and sea temperature means have significantly changed in the past 30 years
